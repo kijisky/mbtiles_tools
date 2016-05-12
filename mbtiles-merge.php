@@ -7,7 +7,7 @@ function SelectDups($conn){
         ' from main.tiles as dm  '.
         ' join src.tiles as ds '.
         ' on(dm.zoom_level=ds.zoom_level and dm.tile_row=ds.tile_row and dm.tile_column=ds.tile_column)'.
-        ' where dm.zoom_level=13';
+	'';
 	$stmt_dups = $conn->query($sql_dups);
 	return $stmt_dups;
 }
@@ -124,9 +124,21 @@ function LogMsg($logfile, $msg){
         file_put_contents($logfile, $logMsgFile, FILE_APPEND);
 }
 
+function ShowUsage(){
+	echo "Usage: ";
+	echo "\n php mbtiles-merge.php target_mbtiles *source_mbtiles";
+	echo "\n\n";
+}
+
+
+if ( !isset($argv) || count($argv) < 2) {
+   	ShowUsage();
+	die();
+}
+
+$filesCount = count($argv) - 2;
 $targetDB = $argv[1];
 $logfile = $targetDB.".log";
-$filesCount = count($argv) - 2;
 
 if (!file_exists($targetDB))
 	CreateDB($targetDB);
