@@ -238,6 +238,7 @@ function CalcDownLevel($db, $level){
 	$tgtLevel = $level-1;
 	$tiles_to_calc = GetTilesForLowerLevel($db, $level);
 	LogMsg("calc: $level -> $tgtLevel, tiles: ".count($tiles_to_calc));
+	$cntTiles = 0;
 	foreach( $tiles_to_calc as $newTile){
 		$rowNum = $newTile["tile_row"];
 		$colNum = $newTile["tile_column"];
@@ -246,6 +247,8 @@ function CalcDownLevel($db, $level){
 		DestroyImages($srcTiles);
 
 		InsertNewTile($db, $tgtLevel, $rowNum, $colNum, $tileData);
+		LogProgress($cntTiles);		
+		$cntTiles++;
 	}	
 }
 
