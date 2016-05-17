@@ -1,10 +1,11 @@
 <?php
 
 $logfile ="./mbtiles-recalcup.log";
+$logProgressQuant= 100;
 
 function LogProgress($cnt){
-	$quant=100;
-	if ( $cnt % $quant == 0){
+	global $logProgressQuant;
+	if ( $cnt % $logProgressQuant == 0){
 		echo "..".$cnt;
 	} 
 }
@@ -141,6 +142,12 @@ function  GetTilesForLowerLevel($db, $level){
 	LogMsg("debug: $rmin - $rmax ; $cmin - $cmax");
 	
 	$ans = Array();
+	$ans["rmin"] = $rmin;
+        $ans["rmax"] = $rmax;
+        $ans["cmin"] = $cmin;
+        $ans["cmax"] = $cmax;
+	return $ans;
+
 	for($r = $rmin; $r <$rmax; $r++){
            for($c = $cmin; $c <$cmax; $c++){
 		$obj["tile_row"] = $r;
@@ -217,13 +224,13 @@ function Merge4Tiles($img){
 	imagefill($ans, 0,0, imagecolorallocatealpha($ans, 0, 0, 0, 127)  );
 
         if ($img[2] != null)
-	  imagecopyresampled ($ans, $img[2],      0 ,      0 , 0 , 0 , $imgW1 , $imgH1 , $imgW , $imgH );
+	  imagecopyresized ($ans, $img[2],      0 ,      0 , 0 , 0 , $imgW1 , $imgH1 , $imgW , $imgH );
         if ($img[3] != null)
-          imagecopyresampled ($ans, $img[3], $imgW1 ,      0 , 0 , 0 , $imgW1 , $imgH1 , $imgW , $imgH );
+          imagecopyresized ($ans, $img[3], $imgW1 ,      0 , 0 , 0 , $imgW1 , $imgH1 , $imgW , $imgH );
         if ($img[0] != null)
-          imagecopyresampled ($ans, $img[0],      0 , $imgH1 , 0 , 0 , $imgW1 , $imgH1 , $imgW , $imgH );
+          imagecopyresized ($ans, $img[0],      0 , $imgH1 , 0 , 0 , $imgW1 , $imgH1 , $imgW , $imgH );
         if ($img[1] != null)
-          imagecopyresampled ($ans, $img[1], $imgW1 , $imgH1 , 0 , 0 , $imgW1 , $imgH1 , $imgW , $imgH );
+          imagecopyresized ($ans, $img[1], $imgW1 , $imgH1 , 0 , 0 , $imgW1 , $imgH1 , $imgW , $imgH );
 	return $ans;
 }
 
@@ -235,13 +242,20 @@ function DestroyImages($srcTiles){
 }
 
 function CalcDownLevel($db, $level){
+	global $logProgressQuant;
 	$tgtLevel = $level-1;
-	$tiles_to_calc = GetTilesForLowerLevel($db, $level);
-	LogMsg("calc: $level -> $tgtLevel, tiles: ".count($tiles_to_calc));
+	$tminmax = GetTilesForLowerLevel($db, $level);
+	$tilesTotal = ($tminmax["rmax"]- $tminmax["rmin"]) * ($tminmax["cmax"]- $tminmax["cmin"]);
+	if ($tilesTotal > 100000 ) $logProgressQuant = 1000;
+        if ($tilesTotal > 1000000) $logProgressQuant = 10000;
+
+	LogMsg("calc: $level -> $tgtLevel, tiles: ".$tilesTotal."  progressReport every: ".$logProgressQuant  );
 	$cntTiles = 0;
-	foreach( $tiles_to_calc as $newTile){
-		$rowNum = $newTile["tile_row"];
-		$colNum = $newTile["tile_column"];
+	for ($r = $tminmax["rmin"]; $r <=  $tminmax["rmax"];  $r++)
+            for ($c = $tminmax["cmin"]; $c <=  $tminmax["cmax"];  $c++)
+	    {
+		$rowNum = $r;
+		$colNum = $c;
 		$srcTiles = GetTilesImg($db, $tgtLevel, $rowNum, $colNum);
 		$tileData = Merge4Tiles($srcTiles);
 		DestroyImages($srcTiles);
@@ -249,7 +263,7 @@ function CalcDownLevel($db, $level){
 		InsertNewTile($db, $tgtLevel, $rowNum, $colNum, $tileData);
 		LogProgress($cntTiles);		
 		$cntTiles++;
-	}	
+	   }	
 }
 
 function  UpdateMetadata($db, $maxmin, $targetLevel){
@@ -276,8 +290,8 @@ function DoMBTILESCalc($fileName, $targetLevel, $baseLevel = null){
         $db = new PDO("sqlite:".$fileName);          // open mbtiles database
         $db->beginTransaction();                        // StartTransaction - speedUp process
 
-        $currentLevels = GetCurrentLevel($db);
 	if ($baseLevel == null){
+		$currentLevels = GetCurrentLevel($db);
 		$zmin = $currentLevels["zmin"];
         	$zmax = $currentLevels["zmax"];
 	} else {
@@ -298,11 +312,11 @@ function DoMBTILESCalc($fileName, $targetLevel, $baseLevel = null){
 
 
 if (empty($argv)){
-	die("use: php  mbtiles-calcup.php targetZoom mbtilesFilename\n");
+        die("use: php  mbtiles-calcup.php targetZoom sourceZoomLevel mbtilesFilename\n");
 }
 $filesCount = count($argv) - 1;
 if ($filesCount < 1){
-	die("use: php  mbtiles-calcup.php targetZoom mbtilesFilename\n");
+        die("use: php  mbtiles-calcup.php targetZoom sourceZoomLevel mbtilesFilename\n");
 }
 $targetLevel = $argv[1];
 $baseLevel = $argv[2];
