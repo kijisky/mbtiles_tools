@@ -1,21 +1,70 @@
 <?php
 
-$logfile ="./mbtiles-recalcup.log";
+$logfile= null; //"./mbtiles-recalcup.log";
+$logLevel = 2;
 $logProgressQuant= 100;
+$logProgressMax =1;
 
-function LogProgress($cnt){
-	global $logProgressQuant;
-	if ( $cnt % $logProgressQuant == 0){
-		echo "..".$cnt;
-	} 
+if (empty($argv)){
+        die("use: php  mbtiles-calcup.php targetZoom mbtilesFilename mbtilesBounds*\n");
+}
+$filesCount = count($argv) - 1;
+if ($filesCount < 1){
+        die("use: php  mbtiles-calcup.php targetZoom mbtilesFilename mbtilesBounds*\n");
+}
+$targetLevel = $argv[1];
+$baseLevel   = null; //@$argv[3];
+$targetFile  = $argv[2];
+if (!file_exists($targetFile)){
+        die("can't find file targetfile: $targetFile");
 }
 
-function LogMsg($msg){
+for ($i=3; $i<= $filesCount; $i++){
+        $boundsFileName = @$argv[$i];
+        $logfile = $targetFile.".log";
+
+        if (file_exists($boundsFileName)){
+                DoMBTILESCalc($targetFile, $boundsFileName, $targetLevel, $baseLevel);
+        } else {
+                LogMsg("Can't find BOUNDS-file: $boundsFileName");
+        }
+}
+
+
+die();
+
+function CalcProgress($tminmax, $mult = 1){
+	global $logProgressQuant,$logProgressMax;
+	$tilesTotal = ($tminmax["rmax"]- $tminmax["rmin"]) * ($tminmax["cmax"]- $tminmax["cmin"]);
+	$tilesTotal = $tilesTotal * $mult;
+	$logProgressMax=$tilesTotal;
+	$logProgressQuant = intval($tilesTotal/10);
+	LogMsg("all: $logProgressMax quant: $logProgressQuant");
+	echo "0";
+}
+
+function LogProgress($cnt){
+	return;
+	global $logProgressQuant,$logProgressMax;
+	if ( $cnt % $logProgressQuant == 0){
+		echo "..".($cnt/$logProgressQuant);
+		if ($cnt == $logProgressMax-1) {
+			echo "\r\n";
+		}
+	}
+}
+
+function LogMsg($msg, $level=null){
 	global $logfile;
+	global $logLevel;
         date_default_timezone_set('Europe/Moscow');
         $logMsgFile = date("d-G:i:s")." ]] ".$msg."\n";
-	echo $logMsgFile;
-        file_put_contents($logfile, $logMsgFile, FILE_APPEND);
+	if ($level ==null || $level <= $logLevel) {
+		echo $logMsgFile;
+	}
+	if ($logfile!=null){
+        	file_put_contents($logfile, $logMsgFile, FILE_APPEND);
+	}
 }
 
 function GetCurrentLevel($db){
@@ -66,7 +115,7 @@ function GetTilesCount($db, $zoomLevel){
 }
 
 function InsertNewTile($db, $zoomLevel, $rowNum, $colNum, $tileData){
-	//LogMsg("debug: InsertNewTile$zoomLevel, $rowNum, $colNum");
+	LogMsg("debug: InsertNewTile$zoomLevel, $rowNum, $colNum", 10);
         $sql_upd = "insert or replace into tiles (zoom_level, tile_row, tile_column, tile_data) values(:z, :r, :c, :d)";
         $stmt = $db->prepare($sql_upd);
 
@@ -88,7 +137,7 @@ function InsertNewTile($db, $zoomLevel, $rowNum, $colNum, $tileData){
 
 function RiseUpLevel($db, $level){
         $tiles_count = GetTilesCount($db, $level);
-        LogMsg("Found tiles: $tiles_count");
+        LogMsg("Found tiles: $tiles_count", 4);
 
 	$tiles_stmt = $db->query("select tile_row, tile_column, tile_data from tiles where zoom_level=$level");
 
@@ -100,11 +149,11 @@ function RiseUpLevel($db, $level){
 
 	$newZoomLevel = $level+1;
 
-	LogMsg("rizeUp:  $level => $newZoomLevel");
+	LogMsg("rizeUp:  $level => $newZoomLevel", 4);
 
         while($tile = $tiles_stmt->fetch()){
 		$col = $tile["tile_column"];
-		LogProgress($tilesCount);
+		LogProgress(++$tilesCount);
 		$row = $tile["tile_row"];
 
                 $newImg = Get4DetailedTiles($tile["tile_data"]);
@@ -117,10 +166,8 @@ function RiseUpLevel($db, $level){
                 imagedestroy($newImg[1]);
                 imagedestroy($newImg[2]);
                 imagedestroy($newImg[3]);
-
-                $tilesCount++;
         }
-	LogMsg("--- ok: $tilesCount tiles");
+	LogMsg("--- ok: $tilesCount tiles", 3);
 }
 
 function GetTilesForLevelFromBounds($bounds, $level){
@@ -140,11 +187,6 @@ function GetTilesForLevelFromBounds($bounds, $level){
 }
 
 function  GetTilesForLowerLevel($db, $level){
-	//$sql = "select tile_row/2 as tile_row, tile_column/2 as tile_column from tiles ".
-	//	" where zoom_level=$level and tile_row % 2 = 0 and tile_column % 2  = 0";
-	//$stmt = $db->query($sql);
-	//$ans = $stmt->fetchAll();
-
 	$sql=" select min(tile_row) as rmin, max(tile_row) as rmax, min(tile_column) as cmin, max(tile_column) as cmax ".
 		" from tiles where zoom_level=$level";
 	$stmt = $db->query($sql);
@@ -155,7 +197,7 @@ function  GetTilesForLowerLevel($db, $level){
 	$rmax = intval($minmax["rmax"]/2+1 );
         $cmin = intval($minmax["cmin"]/2-0,5 );
         $cmax = intval($minmax["cmax"]/2+1 );
-	LogMsg("debug: $rmin - $rmax ; $cmin - $cmax");
+	LogMsg("debug: $rmin - $rmax ; $cmin - $cmax", 10);
 	
 	$ans = Array();
 	$ans["rmin"] = $rmin;
@@ -166,7 +208,7 @@ function  GetTilesForLowerLevel($db, $level){
 }
 
 function GetTile($db, $level, $rowNum, $colNum){
-	//LogMsg("GetTile $level, $rowNum, $colNum");
+	LogMsg("GetTile $level, $rowNum, $colNum", 10);
 	$sql = "select tile_data from tiles where zoom_level = :z and tile_column = :c and tile_row = :r";
 	$stmt = $db->prepare($sql);
 	$stmt->bindValue(":z", $level);
@@ -192,7 +234,7 @@ function  GetTilesImg($db, $zoomLevel, $rowNum, $colNum){
 	$q_rowNum = $rowNum*2;
 	$q_colNum = $colNum*2;
 
-	//LogMsg("--- getTiles: $zoomLevel, $rowNum, $colNum -> $q_rowNum, $q_colNum, ");
+	LogMsg("--- getTiles: $zoomLevel, $rowNum, $colNum -> $q_rowNum, $q_colNum, ", 10);
 	$img[0] = GetTile($db, $q_level, $q_rowNum+0, $q_colNum+0);
         $img[1] = GetTile($db, $q_level, $q_rowNum+0, $q_colNum+1);
         $img[2] = GetTile($db, $q_level, $q_rowNum+1, $q_colNum+0);
@@ -249,7 +291,6 @@ function DestroyImages($srcTiles){
 }
 
 function CalcDownLevel($db, $level, $bounds){
-	global $logProgressQuant;
 	$tgtLevel = $level-1;
 	
 	$tminmax = ($bounds != null) ?
@@ -257,12 +298,8 @@ function CalcDownLevel($db, $level, $bounds){
 		GetTilesForLowerLevel($db, $level);
 
 	$tilesTotal = ($tminmax["rmax"]- $tminmax["rmin"]) * ($tminmax["cmax"]- $tminmax["cmin"]);
-	if ($tilesTotal > 100000 ) $logProgressQuant = 1000;
-        if ($tilesTotal > 1000000) $logProgressQuant = 10000;
 
-	LogMsg("calc: $level -> $tgtLevel, tiles: ".$tilesTotal."  progressReport every: ".$logProgressQuant  );
-		$rn = $tminmax['rmin']; $rx = $tminmax['rmax']; $cn = $tminmax['cmin']; $cx = $tminmax['cmax'];
-	LogMsg(" - bounds: $rn - $rx, $cn - $cx ");
+	//LogMsg(" - bounds: $rn - $rx, $cn - $cx ", 2);
 	$cntTiles = 0;
 	for ($r = $tminmax["rmin"]; $r <=  $tminmax["rmax"];  $r++)
             for ($c = $tminmax["cmin"]; $c <=  $tminmax["cmax"];  $c++)
@@ -274,8 +311,7 @@ function CalcDownLevel($db, $level, $bounds){
 		DestroyImages($srcTiles);
 
 		InsertNewTile($db, $tgtLevel, $rowNum, $colNum, $tileData);
-		LogProgress($cntTiles);		
-		$cntTiles++;
+		LogProgress(++$cntTiles);		
 	   }	
 }
 
@@ -285,7 +321,11 @@ function  UpdateMetadata($db, $maxmin, $targetLevel){
 }
 
 function DoMBTILESCalcUp($db, $currentLevel, $targetLevel, $bounds){
+	LogMsg("DoMBTILESCalcUp", 3);
 	for($level = $currentLevel; $level<$targetLevel; $level++){
+		LogMsg("cals level: $level");
+		$boundsMult = 1 + 4*($level-$currentLevel);
+		//CalcProgress($bounds, $boundsMult );
 		RiseUpLevel($db, $level);
 	}
         UpdateMetadata($db, 'maxzoom', $targetLevel);              // recalculate map maxZoom
@@ -293,7 +333,10 @@ function DoMBTILESCalcUp($db, $currentLevel, $targetLevel, $bounds){
 
 function DoMBTILESCalcDown($db, $currentLevel, $targetLevel, $bounds){
         for($level = $currentLevel; $level>$targetLevel; $level--){
-                CalcDownLevel($db, $level, $bounds);
+                LogMsg("cals level: $level");
+		$boundsMult = 1 + 4*($currentLevel-$level);
+		//CalcProgress($bounds, 1/$boundsMult );
+		CalcDownLevel($db, $level, $bounds);
         }
         UpdateMetadata($db, 'minzoom', $targetLevel);              // recalculate map minZoom
 }
@@ -305,32 +348,38 @@ function GetBounds($boundsFile, $baseLevel){
 		" min(tile_column) as cmin, max(tile_column) as cmax, ".
 		" min(tile_row) as rmin, max(tile_row) as rmax ".
 		"from tiles where zoom_level=$baseLevel");
+	if ($stmt == null) { LogMsg("can't calc Bounds"); die("can't calc Bounds"); }
 	$ans = $stmt->fetch();
 	$stmt->closeCursor();
 	return $ans;
 }
 
 function DoMBTILESCalc($fileName, $boundsFile, $targetLevel, $baseLevel = null){
-        LogMsg("do recalcl: $fileName");
-	$bounds = GetBounds($boundsFile, $baseLevel);
+        LogMsg("do recalcl: $fileName", 1);
         $db = new PDO("sqlite:".$fileName);          // open mbtiles database
 	
 
         $db->beginTransaction();                        // StartTransaction - speedUp process
 
+	$zmin=null;
+	$zmax=null;
+	$baseLevel=intval($baseLevel);
 	if ($baseLevel == null){
 		$currentLevels = GetCurrentLevel($db);
-		$zmin = $currentLevels["zmin"];
-        	$zmax = $currentLevels["zmax"];
+		$zmin = intval($currentLevels["zmin"]);
+        	$zmax = intval($currentLevels["zmax"]);
 	} else {
+		$bounds = GetBounds($boundsFile, $baseLevel);
 		$zmin = $baseLevel;
 		$zmax = $baseLevel;
 	}
-	LogMsg("levels: $zmin - $zmax, target:$targetLevel");
+	LogMsg("levels: $zmin - $zmax, target:$targetLevel", 3);
 	if ($targetLevel > $zmax){
+		$bounds=GetBounds($boundsFile, $zmax);
 		DoMBTILESCalcUp($db, $zmax, $targetLevel, $bounds);
 	}
         if ($targetLevel < $zmin){
+		$bounds=GetBounds($boundsFile, $zmin);
                 DoMBTILESCalcDown($db, $zmin, $targetLevel, $bounds);
         }
 
@@ -338,30 +387,4 @@ function DoMBTILESCalc($fileName, $boundsFile, $targetLevel, $baseLevel = null){
         $db->commit();
 }
 
-
-if (empty($argv)){
-	die("use: php  mbtiles-calcup.php targetZoom sourceZoomLevel mbtilesFilename mbtilesBounds*\n");
-}
-$filesCount = count($argv) - 1;
-if ($filesCount < 1){
-	die("use: php  mbtiles-calcup.php targetZoom sourceZoomLevel mbtilesFilename mbtilesBounds*\n");
-}
-$targetLevel = $argv[1];
-$baseLevel   = $argv[2];
-$targetFile  = $argv[3];
-if (!file_exists($targetFile)){
-	die("can't find file targetfile: $targetFile");
-}
-
-for ($i=4; $i<= $filesCount; $i++){
-	$boundsFileName = $argv[$i];
-	$logfile = $targetFile.".log";
-
-	if (file_exists($boundsFileName)){
-		DoMBTILESCalc($targetFile, $boundsFileName, $targetLevel, $baseLevel);
-	} else {
-		LogMsg("Can't find BOUNDS-file: $boundsFileName");
-	}
-}
-?>
 
